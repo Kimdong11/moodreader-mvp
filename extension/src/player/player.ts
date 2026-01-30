@@ -22,20 +22,22 @@ export class MoodReaderPlayer {
     this.iframe.id = 'yt-player-frame';
     this.iframe.width = '100%';
     this.iframe.height = '100%';
-    // Use raw embed with enablejsapi=1
-    // Important: No auto-play initially.
-    const origin = window.location.origin;
-    this.iframe.src = `https://www.youtube.com/embed/?enablejsapi=1&origin=${encodeURIComponent(origin)}&controls=1&rel=0`;
+    
+    // Attempt to bypass strict origin checks by not declaring origin if possible, or using standard
+    // Some videos block playback on 'chrome-extension://' origin.
+    // Lofi Girl usually allows embed everywhere.
+    // Try removing origin param first, as it defaults to current page origin which might trigger block.
+    // Also add referrer policy.
+    
+    this.iframe.src = `https://www.youtube.com/embed/?enablejsapi=1&controls=1&rel=0&autoplay=0`;
     this.iframe.allow = "autoplay; encrypted-media; gyroscope; picture-in-picture";
     this.iframe.style.border = '0';
+    this.iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
     
     container.appendChild(this.iframe);
     
-    // Listen for messages from YouTube
     window.addEventListener('message', this.onMessage.bind(this));
     
-    // Assume ready after short delay or wait for event (YouTube sends onReady but inconsistent in raw mode)
-    // We'll mark ready quickly.
     setTimeout(() => {
         this.isReady = true;
         Logger.log('YouTube Player (Raw) Initialized');
@@ -48,13 +50,9 @@ export class MoodReaderPlayer {
       
       try {
           const data = JSON.parse(event.data);
-          // Raw messages from YouTube are: { "event": "infoDelivery", "info": { "playerState": 1, ... } }
           if (data.event === 'infoDelivery' && data.info) {
               if (data.info.playerState !== undefined) {
                  this.mapState(data.info.playerState);
-              }
-              if (data.info.currentTime) {
-                  // update time
               }
           }
       } catch (e) {
@@ -63,7 +61,6 @@ export class MoodReaderPlayer {
   }
 
   private mapState(ytState: number) {
-      // YT: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
       let state: PlayerState | null = null;
       if (ytState === 0) state = 'END';
       if (ytState === 1) state = 'PLAY';
@@ -71,11 +68,10 @@ export class MoodReaderPlayer {
       if (ytState === 3) state = 'BUF';
       
       if (state && this.onStateChange) {
-          this.onStateChange(state, 0); // time not tracked strictly for MVP
+          this.onStateChange(state, 0);
       }
   }
 
-  // Raw Command Sender
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private sendCommand(func: string, args: any[] = []) {
       if (!this.iframe || !this.iframe.contentWindow) return;
@@ -86,9 +82,7 @@ export class MoodReaderPlayer {
       }), '*');
   }
 
-  // --- Public API ---
   public loadVideo(trackId: string) {
-      // loadVideoById
       this.sendCommand('loadVideoById', [trackId]);
       this.isReady = true; 
   }
