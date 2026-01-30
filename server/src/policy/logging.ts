@@ -5,6 +5,11 @@ export class Logger {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  static warn(msg: string, meta?: any) {
+    console.warn(JSON.stringify({ level: 'WARN', msg, ...Logger.scrub(meta) }));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   static error(msg: string, meta?: any) {
     console.error(JSON.stringify({ level: 'ERROR', msg, ...Logger.scrub(meta) }));
   }
