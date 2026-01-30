@@ -1,99 +1,103 @@
 import { Logger } from '../common/logger';
 
-declare global {
-  interface Window {
-    onYouTubeIframeAPIReady: () => void;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    YT: any;
-  }
-}
-
 export type PlayerState = 'BUF' | 'PLAY' | 'PAUSE' | 'END' | 'ERR';
 
 export class MoodReaderPlayer {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private ytPlayer: any;
+  private iframe: HTMLIFrameElement | null = null;
   private isReady = false;
-  private queuePlay = false;
-
+  
   public onStateChange?: (state: PlayerState, time: number) => void;
   public onError?: (error: string) => void;
 
   constructor(elementId: string) {
-    this.loadApi(elementId);
+    this.initFrame(elementId);
   }
 
-  private loadApi(elementId: string) {
-    const tag = document.createElement('script');
-    tag.src = "https://www.youtube.com/iframe_api";
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+  private initFrame(elementId: string) {
+    const container = document.getElementById(elementId);
+    if (!container) return;
 
-    window.onYouTubeIframeAPIReady = () => {
-      this.ytPlayer = new window.YT.Player(elementId, {
-        height: '100%',
-        width: '100%',
-        playerVars: {
-          'playsinline': 1,
-          'controls': 1 
-        },
-        events: {
-          'onReady': this.onPlayerReady.bind(this),
-          'onStateChange': this.onPlayerStateChange.bind(this),
-          'onError': this.onPlayerError.bind(this)
-        }
-      });
-    };
-  }
-
-  private onPlayerReady() {
-    this.isReady = true;
-    Logger.log('YouTube Player Ready');
-    if (this.queuePlay) {
-      this.play();
-      this.queuePlay = false;
-    }
+    // Create frame dynamically
+    this.iframe = document.createElement('iframe');
+    this.iframe.id = 'yt-player-frame';
+    this.iframe.width = '100%';
+    this.iframe.height = '100%';
+    // Use raw embed with enablejsapi=1
+    // Important: No auto-play initially.
+    const origin = window.location.origin;
+    this.iframe.src = `https://www.youtube.com/embed/?enablejsapi=1&origin=${encodeURIComponent(origin)}&controls=1&rel=0`;
+    this.iframe.allow = "autoplay; encrypted-media; gyroscope; picture-in-picture";
+    this.iframe.style.border = '0';
+    
+    container.appendChild(this.iframe);
+    
+    // Listen for messages from YouTube
+    window.addEventListener('message', this.onMessage.bind(this));
+    
+    // Assume ready after short delay or wait for event (YouTube sends onReady but inconsistent in raw mode)
+    // We'll mark ready quickly.
+    setTimeout(() => {
+        this.isReady = true;
+        Logger.log('YouTube Player (Raw) Initialized');
+    }, 1500);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private onPlayerStateChange(event: any) {
-    // YT.PlayerState: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (cued)
-    let state: PlayerState | null = null;
-    switch (event.data) {
-      case 0: state = 'END'; break;
-      case 1: state = 'PLAY'; break;
-      case 2: state = 'PAUSE'; break;
-      case 3: state = 'BUF'; break;
-    }
-
-    if (state) {
-      const time = this.ytPlayer.getCurrentTime();
-      if (this.onStateChange) this.onStateChange(state, time);
-    }
+  private onMessage(event: MessageEvent) {
+      if (event.origin !== "https://www.youtube.com") return;
+      
+      try {
+          const data = JSON.parse(event.data);
+          // Raw messages from YouTube are: { "event": "infoDelivery", "info": { "playerState": 1, ... } }
+          if (data.event === 'infoDelivery' && data.info) {
+              if (data.info.playerState !== undefined) {
+                 this.mapState(data.info.playerState);
+              }
+              if (data.info.currentTime) {
+                  // update time
+              }
+          }
+      } catch (e) {
+          // ignore
+      }
   }
 
+  private mapState(ytState: number) {
+      // YT: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
+      let state: PlayerState | null = null;
+      if (ytState === 0) state = 'END';
+      if (ytState === 1) state = 'PLAY';
+      if (ytState === 2) state = 'PAUSE';
+      if (ytState === 3) state = 'BUF';
+      
+      if (state && this.onStateChange) {
+          this.onStateChange(state, 0); // time not tracked strictly for MVP
+      }
+  }
+
+  // Raw Command Sender
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private onPlayerError(event: any) {
-    Logger.error('YouTube Player Error', event.data);
-    if (this.onError) this.onError(event.data.toString());
+  private sendCommand(func: string, args: any[] = []) {
+      if (!this.iframe || !this.iframe.contentWindow) return;
+      this.iframe.contentWindow.postMessage(JSON.stringify({
+          event: 'command',
+          func: func,
+          args: args
+      }), '*');
   }
 
   // --- Public API ---
   public loadVideo(trackId: string) {
-    if (!this.isReady) return;
-    this.ytPlayer.cueVideoById(trackId);
+      // loadVideoById
+      this.sendCommand('loadVideoById', [trackId]);
+      this.isReady = true; 
   }
 
   public play() {
-    if (!this.isReady) {
-      this.queuePlay = true;
-      return;
-    }
-    this.ytPlayer.playVideo();
+      this.sendCommand('playVideo');
   }
 
   public pause() {
-    if (!this.isReady) return;
-    this.ytPlayer.pauseVideo();
+      this.sendCommand('pauseVideo');
   }
 }
