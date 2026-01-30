@@ -1,0 +1,19 @@
+{
+  "name": "moodreader-extension",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run build:ui && npm run build:scripts",
+    "build:ui": "vite build",
+    "build:scripts": "tsup",
+    "preview": "vite preview"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "typescript": "^5.3.3",
+    "tsup": "^8.0.0",
+    "@types/chrome": "^0.0.260"
+  }
+}

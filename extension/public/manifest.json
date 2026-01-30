@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "MoodReader MVP",
+  "version": "0.0.1",
+  "description": "Analyze page tone and play BGM.",
+  "permissions": ["storage", "tabs", "scripting", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
