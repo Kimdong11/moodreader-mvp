@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MoodReader Player</title>
+  <style>
+    body { margin: 0; background: #000; overflow: hidden; height: 100vh; display: flex; align-items: center; justify-content: center; }
+    #player { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="player"></div>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script>
+    let player;
+    
+    // Get Video ID from URL: http://.../player.html?v=VIDEO_ID
+    const urlParams = new URLSearchParams(window.location.search);
+    const videoId = urlParams.get('v') || 'jfKfPfyJRdk';
+    
+    // Initial state from hash: #play or #pause or #stop
+    const initialState = window.location.hash.replace('#', '') || 'start';
+
+    function onYouTubeIframeAPIReady() {
+      console.log('API Ready');
+      player = new YT.Player('player', {
+        height: '100%',
+        width: '100%',
+        videoId: videoId,
+        playerVars: {
+          'playsinline': 1,
+          'autoplay': initialState === 'play' ? 1 : 0,
+          'controls': 1
+        },
+        events: {
+          'onReady': onPlayerReady
+        }
+      });
+    }
+
+    function onPlayerReady(event) {
+      console.log('Player Ready');
+      if (initialState === 'play') event.target.playVideo();
+      // Apply initial hash again just in case (autoplay blocks sometimes)
+      checkHash();
+    }
+
+    // React to hash changes for control
+    window.onhashchange = checkHash;
+
+    function checkHash() {
+      if (!player || !player.playVideo) return;
+      const cmd = window.location.hash.replace('#', '');
+      
+      console.log('Command:', cmd);
+      if (cmd === 'play') player.playVideo();
+      if (cmd === 'pause') player.pauseVideo();
+      if (cmd === 'stop') player.stopVideo();
+    }
+  </script>
+</body>
+</html>

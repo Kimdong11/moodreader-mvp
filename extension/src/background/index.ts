@@ -20,27 +20,6 @@ chrome.runtime.onMessage.addListener((message: MessageEnvelope, sender, sendResp
       sendResponse({ state: stateManager.getState() });
       break;
       
-    case MessageType.PLAYER_HELLO:
-      if (sender.tab?.id) {
-        stateManager.setPlayerTabId(sender.tab.id);
-      }
-      break;
-
-    case MessageType.PLAYER_STATE_CHANGE:
-       if (payload?.state === 'PLAY') {
-         stateManager.transition(AppState.PLAYING);
-         sessionManager.startSession(); 
-       }
-       if (payload?.state === 'PAUSE') {
-         stateManager.transition(AppState.PAUSED);
-         sessionManager.endSession(false);
-       }
-       if (payload?.state === 'END') {
-         stateManager.transition(AppState.IDLE);
-         sessionManager.endSession(false);
-       }
-       break;
-
     case MessageType.CMD_ALLOWLIST:
       if (payload?.domainHash) {
         stateManager.addToAllowlist(payload.domainHash);
@@ -59,17 +38,6 @@ chrome.runtime.onMessage.addListener((message: MessageEnvelope, sender, sendResp
   return true; // Keep channel open
 });
 
-// Auto-stop handler hook (need to wire via polling or callback if cleaner)
-// For MVP, we'll just check if sessionManager stops.
-// Actually sessionManager.endSession returns session. 
-// We need to listen to sessionManager auto-stop. 
-// Patching sessionManager.endSession to stop player?
-// Cleaner: create a bridge.
-// For MVP, I'll modify sessionManager to accept a callback in report.ts?
-// Or just let `resetAutoStop` call a global `stopPlayer`.
-// I'll make a `stopPlayer()` function exportable or accessible.
-
-// ... existing handleAnalyzeRequest ...
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleAnalyzeRequest(payload: any) {
   stateManager.transition(AppState.READY); // Loading...
@@ -137,67 +105,96 @@ async function handleAnalyzeRequest(payload: any) {
   }
 }
 
+// Fixed Play Logic: Use Localhost Player (URL Control)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function playTrack(track: any) {
-  const playerTab = stateManager.getPlayerTabId();
-  if (!playerTab) {
-    // Open player
-    chrome.tabs.create({ url: chrome.runtime.getURL('player.html'), active: false }, (tab) => {
-       if (tab.id) {
-         stateManager.setPlayerTabId(tab.id);
-         // Wait for Hello
-         setTimeout(() => {
-           sendLoadCommand(tab.id!, track);
-         }, 3000);
-       }
+  const currentTabId = stateManager.getPlayerTabId();
+  const url = `http://localhost:8080/player.html?v=${track.id}#play`;
+
+  if (currentTabId) {
+    chrome.tabs.get(currentTabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) {
+             // Tab closed, create new
+             createAndSetPlayer(url, track);
+        } else {
+             // Tab exists, update URL (Change Video)
+             chrome.tabs.update(currentTabId, { url: url, active: false });
+             stateManager.transition(AppState.PLAYING, { track });
+             sessionManager.startSession();
+        }
     });
   } else {
-    sendLoadCommand(playerTab, track);
+    createAndSetPlayer(url, track);
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function sendLoadCommand(tabId: number, track: any) {
-  chrome.tabs.sendMessage(tabId, {
-    type: MessageType.CMD_LOAD,
-    payload: { trackId: track.id }
-  });
-  stateManager.transition(AppState.READY, { track });
+function createAndSetPlayer(url: string, track: any) {
+    chrome.tabs.create({ url: url, active: false }, (tab) => {
+      if (tab.id) {
+          stateManager.setPlayerTabId(tab.id);
+          stateManager.transition(AppState.PLAYING, { track });
+          sessionManager.startSession();
+      }
+    });
 }
 
 function stopPlayer() {
     const playerTab = stateManager.getPlayerTabId();
     if (playerTab) {
-      chrome.tabs.sendMessage(playerTab, { type: MessageType.CMD_PAUSE });
-      stateManager.transition(AppState.STOPPED);
+       chrome.tabs.get(playerTab, (tab) => {
+          if (!chrome.runtime.lastError && tab && tab.url) {
+              const base = tab.url.split('#')[0];
+              chrome.tabs.update(playerTab, { url: base + '#pause' }); // Hash change triggers pause
+              stateManager.transition(AppState.PAUSED);
+              sessionManager.endSession(false);
+          }
+       });
     }
 }
 
 function handleControl(action: string) {
   const playerTab = stateManager.getPlayerTabId();
 
-  if (action === 'OPEN_PLAYER') {
-     chrome.tabs.create({ url: chrome.runtime.getURL('player.html') });
-     return;
+  if (action === 'ANALYZE_CLICK') {
+      // Logic handled by Content Script Request
+      return;
   }
 
+  if (action === 'OPEN_PLAYER') {
+     // Just create tab again? Or focus existing?
+     if (playerTab) chrome.tabs.update(playerTab, { active: true });
+     else chrome.tabs.create({ url: 'http://localhost:8080/player.html' });
+     return;
+  }
+  
   if (!playerTab) {
-    Logger.warn('No player tab found for control action');
-    return;
+     if (action === 'PLAY' || action === 'NEXT') {
+         // Should re-analyze or pick last track? Not stored.
+         // Just warn.
+         Logger.warn('No active player tab. Please Analyze first.');
+     }
+     return;
   }
   
   switch (action) {
     case 'PLAY':
-      chrome.tabs.sendMessage(playerTab, { type: MessageType.CMD_PLAY });
-      stateManager.transition(AppState.PLAYING);
+      chrome.tabs.get(playerTab, (tab) => {
+          if (tab && tab.url) {
+              const base = tab.url.split('#')[0];
+              chrome.tabs.update(playerTab, { url: base + '#play' });
+              stateManager.transition(AppState.PLAYING);
+              sessionManager.startSession();
+          }
+      });
       break;
     case 'STOP':
       stopPlayer();
       break;
     case 'QUIT':
       chrome.tabs.remove(playerTab);
-      stateManager.setPlayerTabId(-1);
+      stateManager.setPlayerTabId(-1); // Use null actually, but number expected
       stateManager.transition(AppState.IDLE);
+      sessionManager.endSession(false);
       break;
     case 'NEXT':
       handleNext();
@@ -208,27 +205,12 @@ function handleControl(action: string) {
 async function handleNext() {
   const track = await nextPolicy.getNext();
   if (track) {
-    const playerTab = stateManager.getPlayerTabId();
-    if (playerTab) {
-       sendLoadCommand(playerTab, track);
-       // Auto-play on next
-       chrome.tabs.sendMessage(playerTab, { type: MessageType.CMD_PLAY });
-       stateManager.transition(AppState.PLAYING, { track });
-    }
+     playTrack(track); // Updates URL with new Video ID
   }
 }
 
-// Wire Auto Stop
-// Needs a nasty hack to monkey patch or use callback.
-// I'll add an export function `onAutoStop` in index.ts and pass it to sessionManager?
-// Circular dependency.
-// I'll poll sessionManager or just have sessionManager send a message to Runtime (self)?
-// self-messaging is clean.
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'INTERNAL_AUTO_STOP') {
         stopPlayer();
     }
 });
-
-// Update report.ts to send this message:
-// `chrome.runtime.sendMessage({ type: 'INTERNAL_AUTO_STOP' })`
