@@ -1,21 +1,21 @@
 import { computeContext, extractPageText } from './extract';
-import { ControlBar } from './ui';
+import { renderControlBar, showToast } from './ui';
 import { ConsentModal } from './consent';
 import { MessageType, AnalyzeRequestPayload, StateUpdatePayload, MessageEnvelope } from '../common/messages';
 import { Logger } from '../common/logger';
 
 let hasScrolled = false;
-let controlBar: ControlBar | null = null;
+let shadowHost: HTMLElement | null = null;
+let shadowRoot: ShadowRoot | null = null;
 
 async function init() {
-  // 1. Wait for scroll
   window.addEventListener('scroll', onFirstScroll, { passive: true });
   
-  // 2. Listen for messages
   chrome.runtime.onMessage.addListener((msg: MessageEnvelope) => {
     if (msg.type === MessageType.STATE_UPDATED) {
-      const payload = msg.payload as StateUpdatePayload;
-      controlBar?.updateState(payload.state);
+      // Optional: Update UI based on state if needed
+      // const payload = msg.payload as StateUpdatePayload;
+      // showToast(shadowRoot!, `State: ${payload.state}`);
     }
   });
   
@@ -26,7 +26,6 @@ function onFirstScroll() {
   if (hasScrolled) return;
   hasScrolled = true;
   window.removeEventListener('scroll', onFirstScroll);
-  
   startExperience();
 }
 
@@ -36,28 +35,21 @@ async function startExperience() {
   const ctx = await computeContext();
   Logger.log('Context:', ctx);
 
-  // Check Allowlist
+  // Check Settings
   let allowed = false;
   try {
     const storage = await chrome.storage.local.get(['settings']);
     const allowlist = storage.settings?.allowlist || [];
-    if (allowlist.includes(ctx.domainHash)) {
-      allowed = true;
-    }
+    if (allowlist.includes(ctx.domainHash)) allowed = true;
   } catch (e) {
     Logger.error('Failed to read settings', e);
   }
 
   if (!allowed) {
-    // Show Modal
     const modal = new ConsentModal(ctx.domain);
     const result = await modal.ask();
-    if (!result.allowed) {
-      Logger.log('User denied consent.');
-      return; 
-    }
+    if (!result.allowed) return;
     
-    // If allowed and remember, update allowlist
     if (result.remember) {
       chrome.runtime.sendMessage({
         type: MessageType.CMD_ALLOWLIST,
@@ -66,27 +58,47 @@ async function startExperience() {
     }
   }
 
-  // Proceed
-  Logger.log('Consent granted. Starting MoodReader...');
-  controlBar = new ControlBar();
-  controlBar.show();
-
-  // Extract Text
-  const text = extractPageText();
-  if (text.length < 200) {
-    Logger.log('Page text too short, skipping.');
-    return;
+  // Init Shadow DOM for UI
+  if (!shadowHost) {
+      shadowHost = document.createElement('div');
+      shadowHost.id = 'moodreader-host';
+      document.body.appendChild(shadowHost);
+      shadowRoot = shadowHost.attachShadow({ mode: 'open' });
   }
 
-  // Send Request
-  chrome.runtime.sendMessage({
-    type: MessageType.ANALYZE_REQUEST,
-    payload: {
-      textShort: text,
-      domainHash: ctx.domainHash,
-      urlHash: ctx.urlHash
-    } as AnalyzeRequestPayload
+  // Render Bar
+  renderControlBar(shadowRoot!, (action) => {
+      if (action === 'ANALYZE_CLICK') {
+          triggerAnalysis(ctx);
+      } else if (['PLAY', 'STOP', 'NEXT'].includes(action)) {
+          chrome.runtime.sendMessage({
+              type: MessageType.CONTROL_ACTION,
+              payload: { action }
+          });
+      }
   });
+
+  // Initial Analysis
+  triggerAnalysis(ctx);
+}
+
+function triggerAnalysis(ctx: any) {
+    const text = extractPageText();
+    if (text.length < 200) {
+        if (shadowRoot) showToast(shadowRoot, 'Page text too short.', 'error');
+        return;
+    }
+
+    if (shadowRoot) showToast(shadowRoot, 'Analyzing mood...');
+    
+    chrome.runtime.sendMessage({
+        type: MessageType.ANALYZE_REQUEST,
+        payload: {
+            textShort: text,
+            domainHash: ctx.domainHash,
+            urlHash: ctx.urlHash
+        }
+    });
 }
 
 init();

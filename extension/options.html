@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MoodReader Options</title>
+  <style>
+    body { font-family: system-ui; padding: 20px; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #333; }
+    h1 { border-bottom: 1px solid #eee; padding-bottom: 10px; }
+    .section { margin-bottom: 30px; }
+    label { display: block; margin-top: 10px; cursor: pointer; }
+    .privacy { background: #f9f9f9; padding: 15px; border-radius: 5px; font-size: 14px; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>MoodReader Settings</h1>
+  
+  <div class="section">
+    <h3>Privacy & Data</h3>
+    <div class="privacy">
+      <p><strong>We value your privacy.</strong></p>
+      <ul>
+        <li>Text analysis happens via our secure proxy. No text is stored permanently on servers.</li>
+        <li>We do not track your browsing history outside of analyzing pages you explicitly interact with.</li>
+        <li>This extension generates anonymous session statistics (duration, mood).</li>
+      </ul>
+    </div>
+    
+    <label>
+      <input type="checkbox" id="telemetry">
+      Allow anonymous usage statistics (Helps us improve)
+    </label>
+    <div id="status" style="color: green; font-size: 0.9em; margin-top:5px;"></div>
+  </div>
+
+  <script type="module" src="/src/options/options.ts"></script>
+</body>
+</html>
