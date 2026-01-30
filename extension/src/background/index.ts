@@ -4,12 +4,16 @@ import { stateManager } from './state';
 import { AppState, TrackInfo } from '../common/types';
 import { YouTubeSearch } from './youtube_search';
 import { nextPolicy } from './next_policy';
+import { sessionManager } from './report';
 
 Logger.log('MoodReader Background Initializing...');
 
 // Init logic
 chrome.runtime.onMessage.addListener((message: MessageEnvelope, sender, sendResponse) => {
   const { type, payload } = message;
+  
+  // Heartbeat / Activity for Auto-stop
+  sessionManager.onActivity();
 
   switch (type) {
     case MessageType.GET_STATE:
@@ -18,16 +22,22 @@ chrome.runtime.onMessage.addListener((message: MessageEnvelope, sender, sendResp
       
     case MessageType.PLAYER_HELLO:
       if (sender.tab?.id) {
-        Logger.log('Player tab registered:', sender.tab.id);
         stateManager.setPlayerTabId(sender.tab.id);
       }
       break;
 
     case MessageType.PLAYER_STATE_CHANGE:
-       if (payload?.state === 'PLAY') stateManager.transition(AppState.PLAYING);
-       if (payload?.state === 'PAUSE') stateManager.transition(AppState.PAUSED);
+       if (payload?.state === 'PLAY') {
+         stateManager.transition(AppState.PLAYING);
+         sessionManager.startSession(); 
+       }
+       if (payload?.state === 'PAUSE') {
+         stateManager.transition(AppState.PAUSED);
+         sessionManager.endSession(false);
+       }
        if (payload?.state === 'END') {
          stateManager.transition(AppState.IDLE);
+         sessionManager.endSession(false);
        }
        break;
 
@@ -38,7 +48,6 @@ chrome.runtime.onMessage.addListener((message: MessageEnvelope, sender, sendResp
       break;
 
     case MessageType.ANALYZE_REQUEST:
-      Logger.log('Analyze Request received', payload);
       handleAnalyzeRequest(payload);
       break; 
 
@@ -50,6 +59,17 @@ chrome.runtime.onMessage.addListener((message: MessageEnvelope, sender, sendResp
   return true; // Keep channel open
 });
 
+// Auto-stop handler hook (need to wire via polling or callback if cleaner)
+// For MVP, we'll just check if sessionManager stops.
+// Actually sessionManager.endSession returns session. 
+// We need to listen to sessionManager auto-stop. 
+// Patching sessionManager.endSession to stop player?
+// Cleaner: create a bridge.
+// For MVP, I'll modify sessionManager to accept a callback in report.ts?
+// Or just let `resetAutoStop` call a global `stopPlayer`.
+// I'll make a `stopPlayer()` function exportable or accessible.
+
+// ... existing handleAnalyzeRequest ...
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleAnalyzeRequest(payload: any) {
   stateManager.transition(AppState.READY); // Loading...
@@ -88,7 +108,6 @@ async function handleAnalyzeRequest(payload: any) {
       }
   } else {
       Logger.warn('Daily Usage Limit reached. Using Local/Default mood.');
-      // LKG or simple default logic could go here
   }
 
   // 2. Build Query based on Analysis
@@ -143,8 +162,15 @@ function sendLoadCommand(tabId: number, track: any) {
     type: MessageType.CMD_LOAD,
     payload: { trackId: track.id }
   });
-  
   stateManager.transition(AppState.READY, { track });
+}
+
+function stopPlayer() {
+    const playerTab = stateManager.getPlayerTabId();
+    if (playerTab) {
+      chrome.tabs.sendMessage(playerTab, { type: MessageType.CMD_PAUSE });
+      stateManager.transition(AppState.STOPPED);
+    }
 }
 
 function handleControl(action: string) {
@@ -166,8 +192,7 @@ function handleControl(action: string) {
       stateManager.transition(AppState.PLAYING);
       break;
     case 'STOP':
-      chrome.tabs.sendMessage(playerTab, { type: MessageType.CMD_PAUSE });
-      stateManager.transition(AppState.STOPPED);
+      stopPlayer();
       break;
     case 'QUIT':
       chrome.tabs.remove(playerTab);
@@ -183,7 +208,6 @@ function handleControl(action: string) {
 async function handleNext() {
   const track = await nextPolicy.getNext();
   if (track) {
-    Logger.log('Next selected:', track);
     const playerTab = stateManager.getPlayerTabId();
     if (playerTab) {
        sendLoadCommand(playerTab, track);
@@ -193,3 +217,18 @@ async function handleNext() {
     }
   }
 }
+
+// Wire Auto Stop
+// Needs a nasty hack to monkey patch or use callback.
+// I'll add an export function `onAutoStop` in index.ts and pass it to sessionManager?
+// Circular dependency.
+// I'll poll sessionManager or just have sessionManager send a message to Runtime (self)?
+// self-messaging is clean.
+chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'INTERNAL_AUTO_STOP') {
+        stopPlayer();
+    }
+});
+
+// Update report.ts to send this message:
+// `chrome.runtime.sendMessage({ type: 'INTERNAL_AUTO_STOP' })`

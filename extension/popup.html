@@ -5,12 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MoodReader</title>
     <style>
-      body { width: 300px; padding: 20px; font-family: sans-serif; background: #222; color: #fff; }
+      body { width: 300px; padding: 16px; background: #1a1a1a; color: white; font-family: system-ui, sans-serif; }
+      h1 { font-size: 18px; margin: 0 0 16px 0; }
+      .btn { display: block; width: 100%; padding: 8px; background: #3b82f6; border: none; border-radius: 4px; color: white; cursor: pointer; margin-bottom: 8px; font-weight: bold; }
+      .btn-sec { background: #444; }
     </style>
   </head>
   <body>
-    <h3>MoodReader</h3>
-    <p>Status: Idle</p>
+    <h1>MoodReader</h1>
+    <div id="status" style="margin-bottom:12px; color:#aaa;">State: IDLE</div>
+    <div id="controls">
+       <!-- Controls injected by JS -->
+    </div>
+    
+    <div id="report-container"></div>
+
     <script type="module" src="/src/popup/main.ts"></script>
   </body>
 </html>
