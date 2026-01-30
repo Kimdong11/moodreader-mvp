@@ -55,34 +55,40 @@ async function handleAnalyzeRequest(payload: any) {
   stateManager.transition(AppState.READY); // Loading...
 
   stateManager.setContext({
-    sourceTabId: 0,
+    sourceTabId: 0, 
     domainHash: payload.domainHash,
     urlHash: payload.urlHash
   });
 
-  // 1. Call Analysis Server
-  const API_URL = 'http://localhost:8080/v1/analyze';
-  let mood = { tempo: 'medium', genres: ['lofi'] }; // Fallback default
+  // 1. Call Analysis Server OR LKG if Limit Reached
+  let mood = { tempo: 'medium', genres: ['lofi'] }; // Fallback/Default
 
-  try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        textShort: payload.textShort,
-        domainHash: payload.domainHash,
-        urlHash: payload.urlHash
-      })
-    });
-    
-    if (response.ok) {
-       mood = await response.json();
-       Logger.log('Server Analysis Result:', mood);
-    } else {
-       Logger.warn('Server returned error:', response.status);
-    }
-  } catch (e) {
-    Logger.error('Analysis Failed (Network/Server)', e);
+  if (stateManager.canAnalyze()) {
+      const API_URL = 'http://localhost:8080/v1/analyze';
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            textShort: payload.textShort,
+            domainHash: payload.domainHash,
+            urlHash: payload.urlHash
+          })
+        });
+        
+        if (response.ok) {
+          mood = await response.json();
+          Logger.log('Server Analysis Result:', mood);
+          stateManager.incrementUsage(); // Deduct quota
+        } else {
+          Logger.warn('Server returned error:', response.status);
+        }
+      } catch (e) {
+        Logger.error('Analysis Failed (Network/Server)', e);
+      }
+  } else {
+      Logger.warn('Daily Usage Limit reached. Using Local/Default mood.');
+      // LKG or simple default logic could go here
   }
 
   // 2. Build Query based on Analysis

@@ -5,12 +5,27 @@ import { LLMService } from './llm/service';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const cache = new Map<string, { result: any, exp: number }>();
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
+const ipLimit = new Map<string, number>();
+
+function rateLimitExceeded(ip: string): boolean {
+  // Simple session/ip based soft limit for demo
+  const count = ipLimit.get(ip) || 0;
+  ipLimit.set(ip, count + 1);
+  return count > 50; 
+}
 
 export async function analyzeHandler(req: Request, res: Response) {
   try {
     const { textShort, domainHash, urlHash } = req.body;
 
-    if (!textShort || textShort.length > 2500) { // Hard cap check
+    // Rate Limit
+    const ip = req.ip || 'unknown';
+    if (rateLimitExceeded(ip)) {
+       Logger.warn('Rate limit exceeded', { ip });
+       return res.status(429).json({ error: 'Too Many Requests' });
+    }
+
+    if (!textShort || textShort.length > 2500) { 
       return res.status(400).json({ error: 'Invalid input' });
     }
 
@@ -21,11 +36,7 @@ export async function analyzeHandler(req: Request, res: Response) {
       return res.json(cached.result);
     }
 
-    // Rate Limit Check (Stub for Prompt 9)
-    // if (rateLimitExceeded(req.ip)) return res.status(429)...
-
     // Call LLM
-    // Timeout wrapper?
     const result = await Promise.race([
        LLMService.analyzeText(textShort),
        // eslint-disable-next-line @typescript-eslint/no-unused-vars, prefer-promise-reject-errors
@@ -38,7 +49,6 @@ export async function analyzeHandler(req: Request, res: Response) {
     // Update Cache
     cache.set(cacheKey, { result, exp: Date.now() + CACHE_TTL });
 
-    // Scrub text from log
     Logger.info('Analysis complete', { domainHash, result });
 
     res.json(result);

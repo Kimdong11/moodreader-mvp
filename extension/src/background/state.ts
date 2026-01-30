@@ -9,6 +9,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   mode: 'focus'
 };
 
+const DAILY_LIMIT = 20;
+
 export class MoodReaderState {
   private state: AppState = AppState.IDLE;
   private context: ReadingContext | null = null;
@@ -44,6 +46,25 @@ export class MoodReaderState {
       this.settings.lastResetDate = today;
       this.saveSettings();
     }
+  }
+
+  public canAnalyze(): boolean {
+    this.checkDailyReset();
+    return this.settings.dailyUsage < DAILY_LIMIT;
+  }
+  
+  public incrementUsage() {
+    this.checkDailyReset();
+    // Soft increment: only if under limit. The blocking check happens before call.
+    if (this.settings.dailyUsage < DAILY_LIMIT) {
+       this.settings.dailyUsage++;
+       this.saveSettings();
+    }
+  }
+
+  public getUsage() {
+    this.checkDailyReset();
+    return this.settings.dailyUsage;
   }
 
   public async addToAllowlist(domainHash: string) {
@@ -82,7 +103,8 @@ export class MoodReaderState {
     this.state = newState;
 
     if (newState === AppState.PLAYING && payload) {
-      // payload might be track info
+      // payload might be track info if available
+      if (payload.track) this.currentTrack = payload.track;
     }
     
     this.broadcastState();
@@ -93,13 +115,11 @@ export class MoodReaderState {
        state: this.state,
        track: this.currentTrack || undefined
      };
-     // Broadcast to Popup and Content Scripts
+     // Broadcast messages
      chrome.runtime.sendMessage({
        type: MessageType.STATE_UPDATED,
        payload
-     }).catch(() => {
-       // No listener, ignore
-     });
+     }).catch(() => {});
      
      if (this.context?.sourceTabId) {
         chrome.tabs.sendMessage(this.context.sourceTabId, {
@@ -107,18 +127,6 @@ export class MoodReaderState {
           payload
         }).catch(() => {});
      }
-  }
-  
-  // Helpers
-  public incrementUsage() {
-    this.checkDailyReset();
-    this.settings.dailyUsage++;
-    this.saveSettings();
-  }
-  
-  public getUsage() {
-    this.checkDailyReset();
-    return this.settings.dailyUsage;
   }
 }
 
