@@ -1,6 +1,7 @@
 import { computeContext, extractPageText } from './extract';
 import { ControlBar } from './ui';
-import { MessageType, AnalyzeRequestPayload, StateUpdatePayload } from '../common/messages';
+import { ConsentModal } from './consent';
+import { MessageType, AnalyzeRequestPayload, StateUpdatePayload, MessageEnvelope } from '../common/messages';
 import { Logger } from '../common/logger';
 
 let hasScrolled = false;
@@ -11,7 +12,7 @@ async function init() {
   window.addEventListener('scroll', onFirstScroll, { passive: true });
   
   // 2. Listen for messages
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg: MessageEnvelope) => {
     if (msg.type === MessageType.STATE_UPDATED) {
       const payload = msg.payload as StateUpdatePayload;
       controlBar?.updateState(payload.state);
@@ -30,17 +31,46 @@ function onFirstScroll() {
 }
 
 async function startExperience() {
-  Logger.log('Reading activity detected. Starting MoodReader...');
+  Logger.log('Reading activity detected. Checking consent...');
   
-  controlBar = new ControlBar();
-  controlBar.show();
-
   const ctx = await computeContext();
   Logger.log('Context:', ctx);
 
-  // Check allowlist (Stub for Prompt 4)
-  // For now, always request analysis to verify flow or just log
-  
+  // Check Allowlist
+  let allowed = false;
+  try {
+    const storage = await chrome.storage.local.get(['settings']);
+    const allowlist = storage.settings?.allowlist || [];
+    if (allowlist.includes(ctx.domainHash)) {
+      allowed = true;
+    }
+  } catch (e) {
+    Logger.error('Failed to read settings', e);
+  }
+
+  if (!allowed) {
+    // Show Modal
+    const modal = new ConsentModal(ctx.domain);
+    const result = await modal.ask();
+    if (!result.allowed) {
+      Logger.log('User denied consent.');
+      return; 
+    }
+    
+    // If allowed and remember, update allowlist
+    if (result.remember) {
+      chrome.runtime.sendMessage({
+        type: MessageType.CMD_ALLOWLIST,
+        payload: { domainHash: ctx.domainHash }
+      });
+    }
+  }
+
+  // Proceed
+  Logger.log('Consent granted. Starting MoodReader...');
+  controlBar = new ControlBar();
+  controlBar.show();
+
   // Extract Text
   const text = extractPageText();
   if (text.length < 200) {

@@ -28,7 +28,6 @@ export class MoodReaderState {
         this.settings = { ...DEFAULT_SETTINGS, ...result.settings };
       }
       this.checkDailyReset();
-      Logger.log('Settings loaded', this.settings);
     } catch (e) {
       Logger.error('Failed to load settings', e);
     }
@@ -44,6 +43,14 @@ export class MoodReaderState {
       this.settings.dailyUsage = 0;
       this.settings.lastResetDate = today;
       this.saveSettings();
+    }
+  }
+
+  public async addToAllowlist(domainHash: string) {
+    if (!this.settings.allowlist.includes(domainHash)) {
+      this.settings.allowlist.push(domainHash);
+      await this.saveSettings();
+      Logger.log('Domain added to allowlist:', domainHash);
     }
   }
 
@@ -75,7 +82,7 @@ export class MoodReaderState {
     this.state = newState;
 
     if (newState === AppState.PLAYING && payload) {
-      // payload might be track info if available
+      // payload might be track info
     }
     
     this.broadcastState();

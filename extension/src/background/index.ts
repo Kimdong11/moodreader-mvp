@@ -7,7 +7,6 @@ Logger.log('MoodReader Background Initializing...');
 
 chrome.runtime.onMessage.addListener((message: MessageEnvelope, sender, sendResponse) => {
   const { type, payload } = message;
-  // Logger.log('Received message', type); // Verbose
 
   switch (type) {
     case MessageType.GET_STATE:
@@ -26,9 +25,14 @@ chrome.runtime.onMessage.addListener((message: MessageEnvelope, sender, sendResp
        if (payload?.state === 'PAUSE') stateManager.transition(AppState.PAUSED);
        if (payload?.state === 'END') {
          stateManager.transition(AppState.IDLE);
-         // Logic for Next will go here
        }
        break;
+
+    case MessageType.CMD_ALLOWLIST:
+      if (payload?.domainHash) {
+        stateManager.addToAllowlist(payload.domainHash);
+      }
+      break;
 
     case MessageType.ANALYZE_REQUEST:
       Logger.log('Analyze Request received', payload);
@@ -54,7 +58,7 @@ chrome.runtime.onMessage.addListener((message: MessageEnvelope, sender, sendResp
 
 function handleControl(action: string) {
   const playerTab = stateManager.getPlayerTabId();
-  
+
   switch (action) {
     case 'OPEN_PLAYER':
        chrome.tabs.create({ url: chrome.runtime.getURL('player.html') });
@@ -77,7 +81,7 @@ function handleControl(action: string) {
       break;
     case 'QUIT':
       chrome.tabs.remove(playerTab);
-      stateManager.setPlayerTabId(-1); // Invalid
+      stateManager.setPlayerTabId(-1);
       stateManager.transition(AppState.IDLE);
       break;
     case 'NEXT':

@@ -5,6 +5,7 @@ export enum MessageType {
   ANALYZE_REQUEST = 'ANALYZE_REQUEST',
   CONTROL_ACTION = 'CONTROL_ACTION',
   GET_STATE = 'GET_STATE',
+  CMD_ALLOWLIST = 'CMD_ALLOWLIST',
 
   // From Player
   PLAYER_HELLO = 'PLAYER_HELLO',
@@ -22,6 +23,7 @@ export enum MessageType {
 
 export interface MessageEnvelope {
   type: MessageType;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload?: any;
 }
 
@@ -35,6 +37,10 @@ export interface AnalyzeRequestPayload {
 
 export interface ControlActionPayload {
   action: 'PLAY' | 'STOP' | 'NEXT' | 'QUIT' | 'OPEN_PLAYER';
+}
+
+export interface AllowlistPayload {
+  domainHash: string;
 }
 
 export interface PlayerStatePayload {
