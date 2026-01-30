@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run build:ui && npm run build:scripts",
+    "build": "npm run build:ui && npm run build:scripts && cp manifest.json dist/manifest.json",
     "build:ui": "vite build",
     "build:scripts": "tsup",
     "preview": "vite preview"
